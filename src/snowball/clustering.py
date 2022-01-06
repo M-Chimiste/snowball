@@ -5,11 +5,12 @@ import pandas as pd
 import numpy as np
 import uuid
 from tqdm import tqdm
+from collections import defaultdict
 
 from utils import cosine_similarity, l2_norm
 DIST_FUNC = ["l2", "cosine"]
 class Snowball:
-    def __init__(self, data, distance_function="l2", extension=None, show_progress=True) -> None:
+    def __init__(self, data, distance_function="l2", extension=None, show_progress=True, cluster_size=3) -> None:
         self.data = self._parse_data(data)
         self._extension = extension
         self._progress = not show_progress
@@ -17,6 +18,7 @@ class Snowball:
         if distance_function not in DIST_FUNC:
             raise Exception(f"{distance_function} is not a valid distance function.  Choose one of {DIST_FUNC}.")
         self.distance_function = distance_function
+        self.cluster_size = cluster_size
         
         pass
     
@@ -77,7 +79,57 @@ class Snowball:
         return data            
     
 
-    def cluster(self):
+    def _check_distance(self, vector_1, vector_2, distance_function, threshold):
+        """Method to check two vectors against a specific distance function and threshold and return a boolean
+        if they meet the threshold criteria.
+
+        Args:
+            vector_1 (np.array): Numpy array of first vector.
+            vector_2 (np.array): Numpy array of second vector.
+            distance_function (str): The name of the distance function to be used.
+            threshold (float): Distance threshold value to check against.
+
+        Raises:
+            Exception: Checks for a correct distance function.
+
+        Returns:
+            [bool]: Boolean value to determine if the two vectors are similar enough.
+        """
+        meets_threshold = False
+        if distance_function is "l2":
+            distance = abs(l2_norm(vector_1, vector_2))
+                
+        if distance_function is "cosine":
+            distance = abs(cosine_similarity(vector_1, vector_2))
+        try:
+            if distance >= threshold:
+                meets_threshold = True
+        except:
+            raise Exception("Unable to select correct distance function.")
+        return meets_threshold
+
+
+    def cluster(self, threshold, distance_function=None, cluster_size=None):
+        """Function will take a threshold value, distance function, and cluster size to conduct
+        an agglomerative clustering operation and return a dictionary of clusters.
+
+        Args:
+            threshold ([type]): [description]
+            distance_function ([type], optional): [description]. Defaults to None.
+            cluster_size ([type], optional): [description]. Defaults to None.
+
+        Raises:
+            Exception: Invalid distance function if not part of DIST_FUNC
+            Exception: Invalid data issue.
+        Returns:
+            [dict]: Dictionary value with keys for clusters and associated records as items/values.
+        """
+        if not distance_function:
+            distance_function = self.distance_function
+        if distance_function not in DIST_FUNC:
+            raise Exception(f"Invalid distance function. Must be one of {DIST_FUNC}")
+        if cluster_size is None:
+            cluster_size = self.cluster_size
         data = self.data
         temp_dicts = []
         all_uuids = []
@@ -99,7 +151,45 @@ class Snowball:
         if self._data_type is None:
             raise Exception(f"An error has occurred, check your data and try again.  Data Type is {self._data_type}")
         
-        # TODO Add Aggregate Clustering Logic.
+        cluster_data = defaultdict(list)
+        cluster_num = 0
 
-                
-        
+        for item in tqdm(data, disable=self._progress):
+            count = 1
+            like_items = []
+            like_items.append(item)
+            index = len(data) - 1
+            pop_index = []
+            for i in (range(index)):
+                i = i + 1
+                try:                 
+                    child = data[i]
+                    parent_vector = item["vector"]
+                    child_vector = child["vector"]
+                    similarity_score = self._check_distance(parent_vector, child_vector, distance_function, threshold)
+                    if similarity_score:
+                        like_items.append(child)
+                        pop_index.append(i)
+                        count += 1
+                    else:
+                        count += 1
+                except:
+                    break
+            # Trending Work Orders
+            if len(like_items) >= cluster_size:
+                cluster_data[cluster_num] = like_items
+                count = 0
+                cluster_num += 1
+                for z in pop_index:
+                    try:
+                        if count > 0:
+                            z = z - count
+                        data.pop(z)
+                        count += 1
+                    except:
+                        break
+            else:
+                continue
+        return cluster_data
+
+
